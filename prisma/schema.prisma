@@ -1,0 +1,478 @@
+// This is your Prisma schema file — it defines your entire database structure.
+// Run `npm run db:push` to sync it with your database.
+// Run `npm run db:studio` to open a visual browser of your data.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+// ─────────────────────────────────────────────
+// NEXTAUTH OAUTH TABLES
+// ─────────────────────────────────────────────
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ─────────────────────────────────────────────
+// USERS & AUTH
+// ─────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  emailVerified DateTime?
+  image        String?
+  phone        String?
+  passwordHash String?  // Optional — not needed for Google OAuth users
+  role         String   @default("attendee") // super_admin | admin | organizer | volunteer | attendee
+  status       String   @default("active") // active | suspended | pending
+  createdAt    DateTime @default(now())
+
+  // NextAuth relations
+  accounts            Account[]
+  sessions            Session[]
+
+  // App relations
+  orgMemberships      OrgMember[]
+  createdEvents       Event[]              @relation("EventCreator")
+  volunteerProfile    VolunteerProfile?
+  volunteerApplications VolunteerApplication[]
+  volunteerAssignments  VolunteerAssignment[]
+  orders              Order[]
+  tickets             Ticket[]
+  transfersFrom       TicketTransfer[]     @relation("TransferFrom")
+  transfersTo         TicketTransfer[]     @relation("TransferTo")
+  scannedCheckins     Checkin[]
+  tasks               Task[]               @relation("TaskAssignee")
+  createdTasks        Task[]               @relation("TaskCreator")
+  notifications       Notification[]
+  feedback            Feedback[]
+  assistLogs          AssistLog[]
+
+  @@map("users")
+}
+
+// ─────────────────────────────────────────────
+// ORGANIZATIONS
+// ─────────────────────────────────────────────
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  email     String
+  phone     String?
+  status    String   @default("active")
+  createdAt DateTime @default(now())
+
+  members    OrgMember[]
+  events     Event[]
+  assistLogs AssistLog[]
+
+  @@map("organizations")
+}
+
+model OrgMember {
+  id         String  @id @default(cuid())
+  orgId      String
+  userId     String
+  memberRole String  @default("member") // owner | admin | staff | member
+  parentId   String? // for hierarchical orgs
+
+  org    Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user   User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parent OrgMember?   @relation("MemberHierarchy", fields: [parentId], references: [id])
+  children OrgMember[] @relation("MemberHierarchy")
+
+  @@unique([orgId, userId])
+  @@map("org_members")
+}
+
+// ─────────────────────────────────────────────
+// VENUES
+// ─────────────────────────────────────────────
+
+model Venue {
+  id       String  @id @default(cuid())
+  name     String
+  address  String
+  city     String
+  capacity Int?
+
+  events Event[]
+
+  @@map("venues")
+}
+
+// ─────────────────────────────────────────────
+// EVENTS
+// ─────────────────────────────────────────────
+
+model Event {
+  id          String   @id @default(cuid())
+  orgId       String
+  venueId     String?
+  createdBy   String
+  entityName  String
+  bio         String?
+  imageUrl    String?  // Cover photo URL
+  status      String   @default("draft") // draft | published | cancelled | completed
+  startTime   DateTime
+  endTime     DateTime
+  capacity    Int?
+  createdAt   DateTime @default(now())
+
+  org          Organization  @relation(fields: [orgId], references: [id])
+  venue        Venue?        @relation(fields: [venueId], references: [id])
+  creator      User          @relation("EventCreator", fields: [createdBy], references: [id])
+  sessions     EventSession[]
+  ticketTypes  TicketType[]
+  orders       Order[]
+  volunteerApplications VolunteerApplication[]
+  volunteerRoles        VolunteerRole[]
+  shifts       Shift[]
+  tasks        Task[]
+  notifications Notification[]
+  feedback     Feedback[]
+  assistLogs   AssistLog[]
+
+  @@map("events")
+}
+
+model EventSession {
+  id        String   @id @default(cuid())
+  eventId   String
+  title     String
+  startTime DateTime
+  endTime   DateTime
+  color     String?
+  capacity  Int?
+
+  event    Event     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  shifts   Shift[]
+  checkins Checkin[]
+
+  @@map("event_sessions")
+}
+
+// ─────────────────────────────────────────────
+// TICKETS & ORDERS
+// ─────────────────────────────────────────────
+
+model TicketType {
+  id          String    @id @default(cuid())
+  eventId     String
+  name        String
+  price       Float
+  maxQuantity Int?      // Max tickets available for this type
+  salesStart  DateTime?
+  salesEnd    DateTime?
+
+  event      Event       @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  orderItems OrderItem[]
+
+  @@map("ticket_types")
+}
+
+model Order {
+  id          String   @id @default(cuid())
+  userId      String
+  eventId     String
+  name        String   // Name on the order
+  status      String   @default("pending") // pending | confirmed | cancelled | refunded
+  totalAmount Float
+  orderTime   DateTime @default(now())
+
+  user      User           @relation(fields: [userId], references: [id])
+  event     Event          @relation(fields: [eventId], references: [id])
+  items     OrderItem[]
+  payment   Payment?
+  transfers TicketTransfer[]
+  checkins  Checkin[]
+
+  @@map("orders")
+}
+
+model OrderItem {
+  id           String  @id @default(cuid())
+  orderId      String
+  ticketTypeId String
+  qty          Int
+  unitPrice    Float
+
+  order      Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  ticketType TicketType @relation(fields: [ticketTypeId], references: [id])
+  tickets    Ticket[]
+
+  @@map("order_items")
+}
+
+model Ticket {
+  id             String   @id @default(cuid())
+  orderItemId    String
+  attendeeUserId String
+  ticketCode     String   @unique @default(cuid())
+  status         String   @default("active") // active | used | cancelled | transferred
+  issuedAt       DateTime @default(now())
+
+  orderItem    OrderItem @relation(fields: [orderItemId], references: [id])
+  attendeeUser User      @relation(fields: [attendeeUserId], references: [id])
+
+  @@map("tickets")
+}
+
+model TicketTransfer {
+  id           String   @id @default(cuid())
+  orderId      String
+  fromUserId   String
+  toUserId     String
+  transferredAt DateTime @default(now())
+  status       String   @default("pending") // pending | completed | cancelled
+
+  order    Order @relation(fields: [orderId], references: [id])
+  fromUser User  @relation("TransferFrom", fields: [fromUserId], references: [id])
+  toUser   User  @relation("TransferTo", fields: [toUserId], references: [id])
+
+  @@map("ticket_transfers")
+}
+
+model Payment {
+  id       String    @id @default(cuid())
+  orderId  String    @unique
+  provider String    // stripe | paypal | manual
+  currency String    @default("USD")
+  amount   Float
+  paidAt   DateTime?
+  txnRef   String?
+
+  order Order @relation(fields: [orderId], references: [id])
+
+  @@map("payments")
+}
+
+model Checkin {
+  id            String   @id @default(cuid())
+  orderId       String
+  sessionId     String
+  scannedUserId String?  // Staff who scanned
+  checkinTime   DateTime @default(now())
+  gate          String?
+
+  order        Order        @relation(fields: [orderId], references: [id])
+  session      EventSession @relation(fields: [sessionId], references: [id])
+  scannedBy    User?        @relation(fields: [scannedUserId], references: [id])
+
+  @@map("checkins")
+}
+
+// ─────────────────────────────────────────────
+// VOLUNTEERS
+// ─────────────────────────────────────────────
+
+model VolunteerProfile {
+  userId                String  @id
+  skills                String?
+  availabilityNotes     String?
+  backgroundCheckStatus String  @default("pending") // pending | approved | rejected
+
+  user        User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignments VolunteerAssignment[]
+
+  @@map("volunteer_profiles")
+}
+
+model VolunteerRole {
+  id          String  @id @default(cuid())
+  eventId     String
+  name        String
+  description String?
+
+  event  Event   @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  shifts Shift[]
+
+  @@map("volunteer_roles")
+}
+
+model Shift {
+  id            String  @id @default(cuid())
+  eventId       String
+  sessionId     String?
+  volunteerRoleId String
+  requiredCount Int
+  location      String?
+  duration      String?
+  status        String  @default("open") // open | filled | cancelled
+
+  event         Event            @relation(fields: [eventId], references: [id])
+  session       EventSession?    @relation(fields: [sessionId], references: [id])
+  volunteerRole VolunteerRole    @relation(fields: [volunteerRoleId], references: [id])
+  assignments   VolunteerAssignment[]
+
+  @@map("shifts")
+}
+
+model VolunteerApplication {
+  id        String   @id @default(cuid())
+  userId    String
+  eventId   String
+  appliedAt DateTime @default(now())
+  status    String   @default("pending") // pending | approved | rejected | withdrawn
+  notes     String?
+
+  user  User  @relation(fields: [userId], references: [id])
+  event Event @relation(fields: [eventId], references: [id])
+
+  @@unique([userId, eventId])
+  @@map("volunteer_applications")
+}
+
+model VolunteerAssignment {
+  id              String    @id @default(cuid())
+  shiftId         String
+  userId          String
+  profileUserId   String
+  assignedAt      DateTime  @default(now())
+  status          String    @default("assigned") // assigned | checked_in | checked_out | no_show
+  checkoutTime    DateTime?
+  hoursLogged     Float?
+
+  shift   Shift            @relation(fields: [shiftId], references: [id])
+  user    User             @relation(fields: [userId], references: [id])
+  profile VolunteerProfile @relation(fields: [profileUserId], references: [userId])
+
+  @@unique([shiftId, userId])
+  @@map("volunteer_assignments")
+}
+
+// ─────────────────────────────────────────────
+// TASKS
+// ─────────────────────────────────────────────
+
+model Task {
+  id          String    @id @default(cuid())
+  assigneeId  String
+  createdById String
+  eventId     String?
+  title       String
+  description String?
+  priority    String    @default("medium") // low | medium | high | urgent
+  dueTime     DateTime?
+  status      String    @default("open") // open | in_progress | completed | cancelled
+  createdAt   DateTime  @default(now())
+
+  assignee    User   @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  createdBy   User   @relation("TaskCreator", fields: [createdById], references: [id])
+  event       Event? @relation(fields: [eventId], references: [id])
+  assignments TaskAssignment[]
+
+  @@map("tasks")
+}
+
+model TaskAssignment {
+  id         String   @id @default(cuid())
+  taskId     String
+  assignedAt DateTime @default(now())
+  status     String   @default("pending")
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@map("task_assignments")
+}
+
+// ─────────────────────────────────────────────
+// NOTIFICATIONS & FEEDBACK
+// ─────────────────────────────────────────────
+
+model Notification {
+  id      String   @id @default(cuid())
+  userId  String
+  eventId String?
+  title   String
+  body    String
+  channel String   @default("in_app") // in_app | email | sms
+  read    Boolean  @default(false)
+  sentAt  DateTime @default(now())
+  status  String   @default("sent") // sent | failed | pending
+
+  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event Event? @relation(fields: [eventId], references: [id])
+
+  @@map("notifications")
+}
+
+model Feedback {
+  id          String   @id @default(cuid())
+  userId      String
+  eventId     String
+  rating      Int?     // 1-5
+  comments    String?
+  submittedAt DateTime @default(now())
+
+  user  User  @relation(fields: [userId], references: [id])
+  event Event @relation(fields: [eventId], references: [id])
+
+  @@map("feedback")
+}
+
+// ─────────────────────────────────────────────
+// AUDIT LOG
+// ─────────────────────────────────────────────
+
+model AssistLog {
+  id         String   @id @default(cuid())
+  orgId      String?
+  userId     String
+  eventId    String?
+  entityName String   // What was affected (e.g. "Order", "Ticket")
+  action     String   // What happened (e.g. "created", "updated", "deleted")
+  metadata   String?  // Extra info as JSON (serialized)
+  createdAt  DateTime @default(now())
+
+  org   Organization? @relation(fields: [orgId], references: [id])
+  user  User          @relation(fields: [userId], references: [id])
+  event Event?        @relation(fields: [eventId], references: [id])
+
+  @@map("assist_logs")
+}
