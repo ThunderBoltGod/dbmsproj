@@ -306,17 +306,6 @@ eventhub/
 
 ---
 
-## Deploying to Production
-
-Easiest option is **Vercel** (free tier):
-
-1. Push code to GitHub
-2. Import repo at https://vercel.com
-3. Add all `.env.local` variables in Vercel's Environment Variables
-4. Deploy — Next.js is auto-detected
-
-> For production, switch `DATABASE_URL` to a hosted PostgreSQL (e.g. [Neon](https://neon.tech) — free tier) and update the Prisma provider from `sqlite` to `postgresql`.
-
 ---
 
 ## Potential Next Features
