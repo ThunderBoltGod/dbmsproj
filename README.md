@@ -1,6 +1,6 @@
 # EventHub 🎟️
 
-AI-powered event management platform — synchronized ticketing, volunteer coordination, and real-time analytics.
+AI-powered event management platform — synchronized ticketing, volunteer coordination, and real time analytics.
 
 Built with **Next.js 15**, **SQLite** (via Prisma), **NextAuth v5** (Google OAuth), **Tailwind CSS**, and **Groq Llama 3.3**.
 
